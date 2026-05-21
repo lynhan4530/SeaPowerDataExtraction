@@ -1,0 +1,36 @@
+/**
+ * Illuminator/director parser for `systems/sensors.ini` (PARSER_HANDOFF.md §3c).
+ *
+ * We emit only sensors that define `WeaponChannels` — the count of missiles a
+ * director can guide simultaneously, i.e. THE saturation cap. Search-only
+ * radars, sonar, ESM, and non-sensor blocks ([Wakebubble]) are skipped.
+ *
+ * Ranges in sensors.ini are in km (note `MaxRange=86.0 // km`); we keep km and
+ * also expose nm so the app can compare against missile ranges (which are nm).
+ */
+import { getValue, getNumber, type IniSection } from '../ini.ts';
+import { kmToNm } from '../units.ts';
+import type { IlluminatorPreset } from '../schema.ts';
+
+/** Parse a channel-bearing sensor, or null if it can't guide weapons. */
+export function parseIlluminator(
+  section: IniSection,
+  source: string,
+): IlluminatorPreset | null {
+  const weaponChannels = getNumber(section, 'WeaponChannels');
+  if (weaponChannels === undefined) return null;
+
+  const maxRangeKm = getNumber(section, 'MaxRange') ?? null;
+
+  return {
+    id: section.name,
+    kind: getValue(section, 'Kind') ?? null,
+    type: getValue(section, 'Type') ?? null,
+    mode: getValue(section, 'Mode') ?? null,
+    weaponChannels,
+    targetChannels: getNumber(section, 'TargetChannels') ?? null,
+    maxRangeKm,
+    maxRangeNm: maxRangeKm !== null ? kmToNm(maxRangeKm) : null,
+    source,
+  };
+}

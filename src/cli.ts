@@ -17,10 +17,18 @@ import {
   PathResolutionError,
   CONFIG_FILENAME,
 } from './config.ts';
-import { enumerateSources, indexCategory } from './sources.ts';
+import { enumerateSources, indexCategory, mergeSections } from './sources.ts';
 import { parseMissile } from './parsers/ammunition.ts';
+import { parseLauncher } from './parsers/weapons.ts';
+import { parseIlluminator } from './parsers/sensors.ts';
 import { detectGameVersion, writePresets, writeWarnings } from './emit.ts';
-import type { MissilePreset, PresetsJson, SourceInfo } from './schema.ts';
+import type {
+  IlluminatorPreset,
+  LauncherPreset,
+  MissilePreset,
+  PresetsJson,
+  SourceInfo,
+} from './schema.ts';
 
 type Args = {
   game: string | undefined;
@@ -124,6 +132,28 @@ function main(): void {
   }
   missiles.sort((a, b) => a.id.localeCompare(b.id));
 
+  // --- Launchers (systems/weapons.ini, merged per-section) -------------------
+  const weapons = mergeSections(active, 'systems/weapons.ini');
+  for (const c of weapons.collisions) {
+    warnings.push(`collision: weapons[${c.id}] from ${c.source} overrides [${c.overridden.join(', ')}]`);
+  }
+  const launchers: LauncherPreset[] = [];
+  for (const s of weapons.sections) {
+    const launcher = parseLauncher(s.section, s.source);
+    if (launcher) launchers.push(launcher);
+  }
+
+  // --- Illuminators (systems/sensors.ini, merged per-section) ----------------
+  const sensors = mergeSections(active, 'systems/sensors.ini');
+  for (const c of sensors.collisions) {
+    warnings.push(`collision: sensors[${c.id}] from ${c.source} overrides [${c.overridden.join(', ')}]`);
+  }
+  const illuminators: IlluminatorPreset[] = [];
+  for (const s of sensors.sections) {
+    const illum = parseIlluminator(s.section, s.source);
+    if (illum) illuminators.push(illum);
+  }
+
   const sourceInfos: SourceInfo[] = sources.map((s) => ({
     id: s.id,
     kind: s.kind,
@@ -137,15 +167,17 @@ function main(): void {
     resolvedPaths: { gamePath: paths.gamePath, modsPath: paths.modsPath },
     sources: sourceInfos,
     missiles,
-    launchers: [],
-    illuminators: [],
+    launchers,
+    illuminators,
     ships: [],
     stats: {
       sourcesActive: active.length,
       sourcesDeprecated: deprecated.length,
       ammunitionFiles: ammoFiles.length,
       missiles: missiles.length,
-      collisions: collisions.length,
+      launchers: launchers.length,
+      illuminators: illuminators.length,
+      collisions: collisions.length + weapons.collisions.length + sensors.collisions.length,
       warnings: warnings.length,
     },
   };
@@ -157,6 +189,7 @@ function main(): void {
 
   console.log(`Wrote ${outPath}`);
   console.log(`  ${missiles.length} missiles from ${ammoFiles.length} ammunition files`);
+  console.log(`  ${launchers.length} launchers, ${illuminators.length} illuminators`);
   console.log(`  ${active.length} sources (${deprecated.length} deprecated skipped)`);
   console.log(`  ${warnings.length} warnings -> ${CONFIG_FILENAME} updated`);
 }

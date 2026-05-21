@@ -8,7 +8,7 @@
  */
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, basename } from 'node:path';
-import { parseIni, getValues } from './ini.ts';
+import { parseIni, getValues, type IniSection } from './ini.ts';
 import type { SourceKind, SourceInfo } from './schema.ts';
 
 export type Source = SourceInfo & {
@@ -107,4 +107,47 @@ export function indexCategory(
   const files = [...byId.values()].sort((a, b) => a.id.localeCompare(b.id));
   const collisions = files.filter((f) => f.overridden.length > 0);
   return { files, collisions };
+}
+
+// --- Shared single-file categories (systems/weapons.ini, sensors.ini) --------
+// These aren't one-file-per-entity: every source ships a (often partial) copy
+// of the same file, and the game merges their sections additively. So override
+// resolution is per-SECTION, not per-file (last-writer-wins by section id).
+
+export type MergedSection = {
+  id: string;
+  section: IniSection;
+  source: string;
+  /** Sources that also defined this section id but lost (priority order). */
+  overridden: string[];
+};
+
+/**
+ * Merge a specific relative file (e.g. `systems/weapons.ini`) across all
+ * non-deprecated sources, last-writer-wins by section id. `sources` must be in
+ * override priority order (low → high). Returns sections sorted by id.
+ */
+export function mergeSections(
+  sources: Source[],
+  relPath: string,
+): { sections: MergedSection[]; collisions: MergedSection[] } {
+  const byId = new Map<string, MergedSection>();
+  for (const source of sources) {
+    if (source.deprecated) continue;
+    const path = join(source.root, relPath);
+    if (!existsSync(path)) continue;
+    const doc = parseIni(readFileSync(path, 'utf8'));
+    for (const section of doc.sections) {
+      const prev = byId.get(section.name);
+      byId.set(section.name, {
+        id: section.name,
+        section,
+        source: source.id,
+        overridden: prev ? [...prev.overridden, prev.source] : [],
+      });
+    }
+  }
+  const sections = [...byId.values()].sort((a, b) => a.id.localeCompare(b.id));
+  const collisions = sections.filter((s) => s.overridden.length > 0);
+  return { sections, collisions };
 }

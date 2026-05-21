@@ -14,16 +14,23 @@ you'd otherwise re-derive from the game install.
 - Steam discovery `src/steam.ts` + path precedence `src/config.ts`.
 - Source enumeration / override resolution `src/sources.ts` (last-writer-wins + collisions,
   `_info.ini` `[DEPRECATED]` skipping, provenance).
-- Ammunition→missile parser `src/parsers/ammunition.ts`, emit `src/emit.ts`, CLI `src/cli.ts`.
-- `npm run parse` produces `presets.json` with **727 missiles** + `presets.warnings.log`.
+- Parsers: ammunition→missiles, weapons→launchers, sensors→illuminators
+  (`src/parsers/`), emit `src/emit.ts`, CLI `src/cli.ts`. Parser tests in
+  `test/parsers.test.ts`.
+- `npm run parse` produces `presets.json`: **727 missiles, 482 launchers, 829 illuminators**
+  + `presets.warnings.log`.
+
+Note: `systems/weapons.ini` and `systems/sensors.ini` are shared single files that every
+source ships a (often partial) copy of; the game merges them additively, so override
+resolution is **per-section** (`mergeSections` in `src/sources.ts`), unlike ammunition which
+is per-file (`indexCategory`). Illuminators = only sensors with `WeaponChannels` (the
+saturation cap); search-only radars/sonar/ESM are skipped.
 
 **Not yet built (next, in order):**
-1. `weapons.ini` → launchers parser (ReloadTime, FireRate, ModuleType, CIWS Pk).
-2. `sensors.ini` → illuminators parser (WeaponChannels = saturation cap; km→nm).
-3. Vessels parser + cross-linking — the hard part. Vessel→sensor link is **indirect**
+1. Vessels parser + cross-linking — the hard part. Vessel→sensor link is **indirect**
    (`AssociatedSensors=SensorSystemN` → local `[SensorSystemN]` block → sensors.ini), and ammo
    binding is mixed (direct `Ammunition=` vs `AssociatedMagazine`/loadouts; handoff §8.1 still open).
-4. Missile display names need localization (`language_en`); currently a prettified id.
+2. Missile display names need localization (`language_en`); currently a prettified id.
 
 ### Runtime constraints (important)
 Node runs `.ts` via **strip-only** type stripping, which CANNOT transform TS-only syntax:
