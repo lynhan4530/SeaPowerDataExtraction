@@ -1,0 +1,22 @@
+{
+  "name": "seapower-data-extraction",
+  "version": "0.1.0",
+  "description": "Standalone, re-runnable extractor: Sea Power game .ini data -> presets.json",
+  "type": "module",
+  "bin": {
+    "parse-seapower": "src/cli.ts"
+  },
+  "scripts": {
+    "parse": "node src/cli.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=22.6"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0"
+  }
+}
