@@ -39,7 +39,12 @@ export type SourceInfo = {
 
 export type MissilePreset = {
   id: string;
+  /** Localized display name (language_en); falls back to a prettified id. */
   name: string;
+  /** Popular/nickname from the name file, e.g. "SM-2MR", or null. */
+  nickname: string | null;
+  /** Name-file category, e.g. "SAM/ASuW", "IR AAM", or null. */
+  category: string | null;
   role: MissileRole;
   speedKnots: number | null;
   maxRangeNm: number | null;
@@ -58,6 +63,8 @@ export type MissilePreset = {
 
 export type LauncherPreset = {
   id: string;
+  /** Localized display name (systemgroups.ini); falls back to a prettified id. */
+  name: string;
   /** `ModuleType` verbatim (SmallLauncher, VLS, CIWS, MediumTurret, …). */
   kind: string;
   reloadTimeS: number | null;
@@ -72,6 +79,8 @@ export type LauncherPreset = {
 
 export type IlluminatorPreset = {
   id: string;
+  /** Localized display name (systemgroups.ini); falls back to a prettified id. */
+  name: string;
   /** `Kind` (Radar, Sonar, …) and `Type` (Search, Targeting). */
   kind: string | null;
   type: string | null;
@@ -141,7 +150,12 @@ export type ShipLoadout = {
 
 export type ShipPreset = {
   id: string;
+  /** Localized display name (vessel_names.ini); falls back to a prettified id. */
   name: string;
+  /** Short/class name, e.g. "Ticonderoga", or null. */
+  nickname: string | null;
+  /** Name-file `Type`, e.g. "Raft", or null. */
+  category: string | null;
   source: string;
   /** `[General].UnitType`: Vessel or Submarine. */
   unitType: string | null;

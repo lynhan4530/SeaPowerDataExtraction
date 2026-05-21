@@ -12,6 +12,11 @@ import { getValue, getNumber, type IniSection } from '../ini.ts';
 import { kmToNm } from '../units.ts';
 import type { IlluminatorPreset } from '../schema.ts';
 
+/** Readable fallback name; replaced by the localized name later if available. */
+function prettifyId(id: string): string {
+  return id.replace(/_/g, ' ');
+}
+
 /** Parse a channel-bearing sensor, or null if it can't guide weapons. */
 export function parseIlluminator(
   section: IniSection,
@@ -24,6 +29,7 @@ export function parseIlluminator(
 
   return {
     id: section.name,
+    name: prettifyId(section.name),
     kind: getValue(section, 'Kind') ?? null,
     type: getValue(section, 'Type') ?? null,
     mode: getValue(section, 'Mode') ?? null,

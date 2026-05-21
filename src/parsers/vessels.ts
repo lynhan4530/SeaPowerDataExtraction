@@ -126,6 +126,8 @@ export function parseVessel(
   return {
     id,
     name: prettifyId(id),
+    nickname: null,
+    category: null,
     source,
     unitType: general ? getValue(general, 'UnitType') ?? null : null,
     role: ai ? getValue(ai, 'Role') ?? null : null,

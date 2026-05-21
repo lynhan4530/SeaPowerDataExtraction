@@ -55,6 +55,8 @@ export function parseMissile(
   return {
     id,
     name: prettifyId(id),
+    nickname: null,
+    category: null,
     role: toRole(findValue(doc, 'TargetType')),
     speedKnots: findNumber(doc, 'MaxVelocity') ?? null,
     maxRangeNm: findNumber(doc, 'MaxLaunchRange') ?? null,

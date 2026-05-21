@@ -9,6 +9,11 @@
 import { getValue, getNumber, type IniSection } from '../ini.ts';
 import type { LauncherPreset } from '../schema.ts';
 
+/** Readable fallback name; replaced by the localized name later if available. */
+function prettifyId(id: string): string {
+  return id.replace(/_/g, ' ');
+}
+
 /** Parse one weapons.ini section, or null if it isn't a real launcher/mount. */
 export function parseLauncher(
   section: IniSection,
@@ -20,6 +25,7 @@ export function parseLauncher(
 
   return {
     id: section.name,
+    name: prettifyId(section.name),
     kind,
     reloadTimeS: getNumber(section, 'ReloadTime') ?? null,
     fireRatePerMin: getNumber(section, 'FireRate') ?? null,
