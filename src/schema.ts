@@ -86,11 +86,80 @@ export type IlluminatorPreset = {
   source: string;
 };
 
-/** Placeholder — ship cross-linking is built in a later pass (handoff §4, §8). */
+/**
+ * A guidance director on a hull: one physical `[SensorSystemN]` mount that a
+ * SAM weapon system points at via `AssociatedSensors`. Resolved through its
+ * `SystemName` to a sensors.ini illuminator. Multiple physical mounts can share
+ * the same `illuminatorId` (e.g. two SPG-51s) — each is counted separately, so
+ * the ship's saturation cap is the SUM of their `weaponChannels`.
+ */
+export type ShipDirector = {
+  /** Local hull reference, e.g. `SensorSystem5`. */
+  sensorSystem: string;
+  /** Resolved illuminators[].id (sensors.ini section), or raw SystemName if unresolved. */
+  illuminatorId: string;
+  /** Whether `illuminatorId` matched a known illuminator. */
+  resolved: boolean;
+  /**
+   * `Type`: `Targeting` = dedicated terminal illuminator (the classic SARH
+   * saturation channel); `Search`/`DirectedSearch` = a search radar that also
+   * carries guidance channels (e.g. Aegis SPY-1 command guidance). Only
+   * `Targeting` directors feed the ship's headline `weaponChannels`.
+   */
+  type: string | null;
+  /** `Mode`: Illuminate, RadioCommand, … */
+  mode: string | null;
+  weaponChannels: number | null;
+  maxRangeNm: number | null;
+};
+
+/** A weapon mount on a hull: `[WeaponSystemN]` → a weapons.ini launcher. */
+export type ShipMount = {
+  /** Hull-local index from `[WeaponSystemN]`. */
+  index: number;
+  /** `Type`: Missile, Gun, CIWS, Torpedo, Chaff, Noisemaker, … */
+  weaponType: string;
+  /** `SystemName` → launchers[].id (weapons.ini). */
+  launcherId: string;
+  /** Whether `launcherId` matched a known launcher. */
+  resolved: boolean;
+};
+
+/** One ammo line in a loadout: `ammoId` → missiles[].id when it's a missile. */
+export type ShipLoadoutEntry = {
+  ammoId: string;
+  count: number | null;
+  /** Whether `ammoId` matched a known missile preset. */
+  isMissile: boolean;
+};
+
+/** A named fit (`AvailableLoadouts`), with ammo aggregated across all mounts. */
+export type ShipLoadout = {
+  name: string;
+  ammo: ShipLoadoutEntry[];
+};
+
 export type ShipPreset = {
   id: string;
   name: string;
   source: string;
+  /** `[General].UnitType`: Vessel or Submarine. */
+  unitType: string | null;
+  /** `[AI].Role`, e.g. "AAW,ASW,ASuW". */
+  role: string | null;
+  displacementTons: number | null;
+  maxSpeedKnots: number | null;
+  /**
+   * Headline saturation cap: sum of WeaponChannels over distinct *terminal*
+   * illuminators (`Type=Targeting`) referenced by missile mounts. Search radars
+   * with guidance channels (SPY-1) are excluded here but kept in `directors` so
+   * the app can model Aegis-style command guidance itself. `null` if the ship
+   * has no terminal illuminators (e.g. all-VLS fire-and-forget, gun boats).
+   */
+  weaponChannels: number | null;
+  directors: ShipDirector[];
+  mounts: ShipMount[];
+  loadouts: ShipLoadout[];
 };
 
 export type PresetsJson = {

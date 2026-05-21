@@ -56,11 +56,13 @@ used only for type checking. Consequences:
 | `parsers/ammunition.ts` | `Type=Missile` ammo → `MissilePreset`. |
 | `parsers/weapons.ts` | `weapons.ini` section → `LauncherPreset`. |
 | `parsers/sensors.ts` | `sensors.ini` section → `IlluminatorPreset`. |
+| `parsers/vessels.ts` | `vessels/*.ini` (+ mod `ships/*.ini`) → `ShipPreset`; cross-links launchers/illuminators/missiles. |
 | `emit.ts` | Game-version detection + write presets/warnings. |
 | `cli.ts` | Arg parsing + pipeline orchestration. |
 
 Pipeline (in `cli.ts`): resolve paths → enumerate sources → parse ammo (per-file) → parse
-weapons + sensors (per-section) → [TODO: vessels + cross-link] → emit JSON + warnings.
+weapons + sensors (per-section) → build link context (illuminator/launcher/missile id maps) →
+parse vessels (per-file, cross-linked) → emit JSON + warnings.
 
 ## Path resolution (`config.ts`, §2.1)
 
@@ -126,11 +128,29 @@ MediumTurret, HeavyTurret, OpenMount, Inert); `ReloadTime` s; `FireRate` rpm;
 RadioCommand); `MaxRange` **in km** (converted to nm too — sensors use km/m, missiles use nm/kn).
 
 **Vessels — `vessels/*.ini`** (base) and some `ships/*.ini` (user/mods). Detect stat files by
-content (`[WeaponSystems]` present), not folder; skip `*_mat.ini`/material/collider files.
-Structure: `[WeaponSystems] NumberOfWeaponSystems=N`, then `[WeaponSystemN]` blocks with
-`SystemName=` (→ weapons.ini launcher) and ammo binding (see open questions). Sensor link is
-**indirect**: `AssociatedSensors=SensorSystem6,SensorSystem5` references local `[SensorSystemN]`
-blocks in the same file → each resolves to a sensor type → sensors.ini.
+content (`[WeaponSystems]` present), not folder — material/collider/`*_variants.ini` (skin/
+nation) files lack it and self-exclude. `[General].UnitType` is `Vessel` or `Submarine` (both
+kept). `[AI].Role` = "AAW,ASW,ASuW"; `[Physics]` has `Displacement`, `MaxForwardVelocity`.
+Structure: `[WeaponSystems] NumberOfWeaponSystems=N` + `AvailableLoadouts=Default,Late`, then
+`[WeaponSystemN]` blocks:
+- `Type` (Missile/Gun/CIWS/Torpedo/Chaff/Noisemaker), `SystemName` (→ weapons.ini launcher).
+- **Sensor link is indirect**: `AssociatedSensors=SensorSystem6,SensorSystem5` → local
+  `[SensorSystemN]` blocks → each block's `SystemName` is a sensors.ini id (a direct match).
+- **Ammo binding (two ways)**: direct `Ammunition=usn_mk46_ship`, or `AssociatedMagazine=
+  WeaponMagazineMK13` → a `[WeaponMagazine…]` block of `AmmunitionN` / `AmmunitionN_Count`.
+
+**Loadout format (§8.1, DECODED — loadouts are NAMED, not numbered):** `AvailableLoadouts=
+Default,Late` (also Early/AntiShip/LandAttack/…). A weapon system's config for loadout `L` is
+`[WeaponSystemN<L>]` (e.g. `[WeaponSystem1Late]`) if that suffixed block exists, else the base
+`[WeaponSystemN]`. The first/Default loadout has no suffixed blocks and always uses the base.
+Magazines vary per loadout too (`WeaponMagazineMK13` vs `WeaponMagazineMK13Late`).
+
+**Saturation cap (the headline `ShipPreset.weaponChannels`):** sum of `WeaponChannels` over the
+distinct *terminal* illuminators (`Type=Targeting`) referenced by missile mounts — counted per
+**physical** `[SensorSystemN]` mount (two SPG-51s = 2, not 1). Search radars that also carry
+guidance channels (`Type=DirectedSearch`, e.g. Aegis SPY-1A with 24) are kept in `directors[]`
+but **excluded** from the headline, so the app can model Aegis command guidance itself. Verified:
+Ticonderoga cap=4 (4× SPG-62), Spruance cap=2 (MK-95).
 
 ## Output schema (`schema.ts`, §6)
 
@@ -144,17 +164,22 @@ the rest in a thin adapter — don't downgrade presets to match the interim type
 ## Current state
 
 Validated end-to-end against the real install (game **v0.7.10**, 125 mods, 2 deprecated):
-**727 missiles, 482 launchers, 829 illuminators**. Tests: `test/ini.test.ts` (tokenizer) +
-`test/parsers.test.ts` (parsers), 19 passing.
+**727 missiles, 482 launchers, 829 illuminators, 546 ships**. Tests: `test/ini.test.ts`
+(tokenizer) + `test/parsers.test.ts` (parsers incl. vessels), 23 passing.
 
-`ships[]` is still empty. **Next, in order:**
-1. **Vessels parser + cross-linking** (the hard part). Graph: vessel `SystemName` → launcher;
-   vessel `AssociatedSensors=SensorSystemN` → local block → sensor (count `WeaponChannels` for
-   the saturation cap); loadout/magazine → ammo. The **per-loadout ammo fill format is still
-   undecoded** (§8.1): `AvailableLoadouts=051,052` → `{ammoId, count}` per cell/magazine. Ammo
-   binding is mixed — some weapon systems have a direct `Ammunition=usn_rur-5`, others use
-   `AssociatedMagazine=` + loadouts. Inspect more vessel files and `original/templates/`.
-2. **Real display names** via `language_*` files (currently a prettified id).
+Vessel cross-linking is live: each ship carries `directors[]` (resolved illuminators + channels),
+`mounts[]` (resolved launchers), `loadouts[]` (per-named-fit `{ammoId, count, isMissile}`), and
+the headline `weaponChannels` cap. Link health: **mounts 97.7% resolved** (152/6694 unresolved,
+almost all mod naming drift — `NSM_quad_launcher` vs `eu_NSM_quad_launcher`, `SeacatQuad` vs
+`RN_SeacatQuad`, `3S90` vs `3S90M` — reported via each mount's `resolved:false`, no fuzzy
+matching); **directors 100% resolved**. Mod-overridden sensors flow through: e.g. Adams SPG-51
+shows 2 channels (base is 1) because an active mod bumped it.
+
+**Next, in order:**
+1. **Real display names** via `language_*` files (ships/missiles/launchers currently use a
+   prettified id). This is the main remaining gap.
+2. (Optional) Resolve the residual unresolved mod mounts if the app needs them — would require a
+   normalization/alias step, risky; defer unless asked.
 
 Other open questions (§8): enabled-mods load order (interim: last-writer-wins); whether SAMs
 expose a Pk like CIWS do.

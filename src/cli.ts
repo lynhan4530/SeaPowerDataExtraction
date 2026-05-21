@@ -21,12 +21,14 @@ import { enumerateSources, indexCategory, mergeSections } from './sources.ts';
 import { parseMissile } from './parsers/ammunition.ts';
 import { parseLauncher } from './parsers/weapons.ts';
 import { parseIlluminator } from './parsers/sensors.ts';
+import { parseVessel, type VesselLinkContext } from './parsers/vessels.ts';
 import { detectGameVersion, writePresets, writeWarnings } from './emit.ts';
 import type {
   IlluminatorPreset,
   LauncherPreset,
   MissilePreset,
   PresetsJson,
+  ShipPreset,
   SourceInfo,
 } from './schema.ts';
 
@@ -154,6 +156,38 @@ function main(): void {
     if (illum) illuminators.push(illum);
   }
 
+  // --- Ships (vessels/*.ini + mod ships/*.ini, cross-linked) -----------------
+  const linkCtx: VesselLinkContext = {
+    illuminators: new Map(
+      illuminators.map((i) => [
+        i.id,
+        { type: i.type, mode: i.mode, weaponChannels: i.weaponChannels, maxRangeNm: i.maxRangeNm },
+      ]),
+    ),
+    launcherIds: new Set(launchers.map((l) => l.id)),
+    missileIds: new Set(missiles.map((m) => m.id)),
+  };
+  // Both folders are per-file; ships/ (mods/user) layered over vessels/ (base).
+  const vesselFiles = new Map<string, (typeof ammoFiles)[number]>();
+  for (const category of ['vessels', 'ships']) {
+    const indexed = indexCategory(active, category);
+    for (const c of indexed.collisions) {
+      warnings.push(`collision: ${category}/${c.id} from ${c.source} overrides [${c.overridden.join(', ')}]`);
+    }
+    for (const f of indexed.files) vesselFiles.set(f.id, f);
+  }
+  const ships: ShipPreset[] = [];
+  for (const file of vesselFiles.values()) {
+    try {
+      const doc = parseIni(readFileSync(file.path, 'utf8'));
+      const ship = parseVessel(doc, file.id, file.source, linkCtx);
+      if (ship) ships.push(ship);
+    } catch (err) {
+      warnings.push(`failed to parse vessel/${file.id}: ${(err as Error).message}`);
+    }
+  }
+  ships.sort((a, b) => a.id.localeCompare(b.id));
+
   const sourceInfos: SourceInfo[] = sources.map((s) => ({
     id: s.id,
     kind: s.kind,
@@ -169,7 +203,7 @@ function main(): void {
     missiles,
     launchers,
     illuminators,
-    ships: [],
+    ships,
     stats: {
       sourcesActive: active.length,
       sourcesDeprecated: deprecated.length,
@@ -177,6 +211,7 @@ function main(): void {
       missiles: missiles.length,
       launchers: launchers.length,
       illuminators: illuminators.length,
+      ships: ships.length,
       collisions: collisions.length + weapons.collisions.length + sensors.collisions.length,
       warnings: warnings.length,
     },
@@ -189,7 +224,7 @@ function main(): void {
 
   console.log(`Wrote ${outPath}`);
   console.log(`  ${missiles.length} missiles from ${ammoFiles.length} ammunition files`);
-  console.log(`  ${launchers.length} launchers, ${illuminators.length} illuminators`);
+  console.log(`  ${launchers.length} launchers, ${illuminators.length} illuminators, ${ships.length} ships`);
   console.log(`  ${active.length} sources (${deprecated.length} deprecated skipped)`);
   console.log(`  ${warnings.length} warnings -> ${CONFIG_FILENAME} updated`);
 }
