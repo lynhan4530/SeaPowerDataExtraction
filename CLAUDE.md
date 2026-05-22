@@ -57,12 +57,13 @@ used only for type checking. Consequences:
 | `parsers/weapons.ts` | `weapons.ini` section → `LauncherPreset`. |
 | `parsers/sensors.ts` | `sensors.ini` section → `IlluminatorPreset`. |
 | `parsers/vessels.ts` | `vessels/*.ini` (+ mod `ships/*.ini`) → `ShipPreset`; cross-links launchers/illuminators/missiles. |
+| `names.ts` | Language-file parsers (`parseAmmunitionNames`, `parseVesselNames`, `parseSystemNames`), FS loader (`loadNames`), in-place enricher (`applyNames`). |
 | `emit.ts` | Game-version detection + write presets/warnings. |
 | `cli.ts` | Arg parsing + pipeline orchestration. |
 
 Pipeline (in `cli.ts`): resolve paths → enumerate sources → parse ammo (per-file) → parse
 weapons + sensors (per-section) → build link context (illuminator/launcher/missile id maps) →
-parse vessels (per-file, cross-linked) → emit JSON + warnings.
+parse vessels (per-file, cross-linked) → apply localized names → emit JSON + warnings.
 
 ## Path resolution (`config.ts`, §2.1)
 
@@ -165,7 +166,8 @@ the rest in a thin adapter — don't downgrade presets to match the interim type
 
 Validated end-to-end against the real install (game **v0.7.10**, 125 mods, 2 deprecated):
 **727 missiles, 482 launchers, 829 illuminators, 546 ships**. Tests: `test/ini.test.ts`
-(tokenizer) + `test/parsers.test.ts` (parsers incl. vessels), 23 passing.
+(tokenizer) + `test/parsers.test.ts` (parsers incl. vessels) + `test/names.test.ts`
+(name parsers), **36 passing**.
 
 Vessel cross-linking is live: each ship carries `directors[]` (resolved illuminators + channels),
 `mounts[]` (resolved launchers), `loadouts[]` (per-named-fit `{ammoId, count, isMissile}`), and
@@ -175,10 +177,14 @@ almost all mod naming drift — `NSM_quad_launcher` vs `eu_NSM_quad_launcher`, `
 matching); **directors 100% resolved**. Mod-overridden sensors flow through: e.g. Adams SPG-51
 shows 2 channels (base is 1) because an active mod bumped it.
 
-**Next, in order:**
-1. **Real display names** via `language_*` files (ships/missiles/launchers currently use a
-   prettified id). This is the main remaining gap.
-2. (Optional) Resolve the residual unresolved mod mounts if the app needs them — would require a
+**Localized display names** are live (base-game only): `names.ts` reads
+`language_en/ammunition_names.ini`, `vessel_names.ini`, and `systemgroups.ini` and enriches all
+four preset arrays before emit. Mod-name override merge is still deferred (base names are
+authoritative for the app's needs). Coverage not yet spot-checked against a real run — validate
+with step 4 of `NEXT_STEPS.md` when next on the real install.
+
+**Next:**
+1. (Optional) Resolve the residual ~2.3% unresolved ship mounts — would require a
    normalization/alias step, risky; defer unless asked.
 
 Other open questions (§8): enabled-mods load order (interim: last-writer-wins); whether SAMs

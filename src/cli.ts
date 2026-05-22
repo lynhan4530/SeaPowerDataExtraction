@@ -23,6 +23,7 @@ import { parseLauncher } from './parsers/weapons.ts';
 import { parseIlluminator } from './parsers/sensors.ts';
 import { parseVessel, type VesselLinkContext } from './parsers/vessels.ts';
 import { detectGameVersion, writePresets, writeWarnings } from './emit.ts';
+import { loadNames, applyNames } from './names.ts';
 import type {
   IlluminatorPreset,
   LauncherPreset,
@@ -216,6 +217,8 @@ function main(): void {
       warnings: warnings.length,
     },
   };
+
+  applyNames(presets, loadNames(paths.gamePath));
 
   const outPath = resolve(args.out);
   writePresets(outPath, presets);
