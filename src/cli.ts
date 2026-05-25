@@ -8,8 +8,8 @@
  *
  * Paths resolve via CLI flags -> config file -> env vars -> Steam discovery (§2.1).
  */
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { readFileSync, existsSync } from 'node:fs';
+import { resolve, join } from 'node:path';
 import { parseIni } from './ini.ts';
 import {
   resolvePaths,
@@ -46,10 +46,15 @@ type Args = {
 };
 
 function parseArgs(argv: string[]): Args {
+  const siblingPublicDir = '../SeaPowerSaturationCalc/public';
+  const defaultOut = existsSync(siblingPublicDir)
+    ? join(siblingPublicDir, 'presets.json')
+    : 'presets.json';
+
   const args: Args = {
     game: undefined,
     mods: undefined,
-    out: 'presets.json',
+    out: defaultOut,
     printConfig: false,
     modConfig: undefined,
     allMods: false,
