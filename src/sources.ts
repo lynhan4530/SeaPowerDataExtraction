@@ -10,6 +10,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import { parseIni, getValues, type IniSection } from './ini.ts';
 import type { SourceKind, SourceInfo } from './schema.ts';
+import type { ModLoadEntry } from './modconfig.ts';
 
 export type Source = SourceInfo & {
   kind: SourceKind;
@@ -47,30 +48,91 @@ function readModInfo(root: string, id: string): { name: string; deprecated: bool
 
 /**
  * Enumerate sources in override priority order (low → high):
- * base game → workshop mods (by id) → user overrides win last.
+ * base game → workshop mods → user overrides win last.
+ *
+ * The mod chain is built one of two ways:
+ *  - **load-order mode** (`loadOrder` given): only the player's *enabled* mods,
+ *    in their chosen load order. A mod's `[LoadOrder]` index is preserved on
+ *    `order`; ascending index = loaded later = wins conflicts (bottom wins),
+ *    matching this low→high chain. Enabled mods whose directory is missing under
+ *    `modsPath` are skipped and reported via `missingEnabled`.
+ *  - **fallback** (`loadOrder` null/empty): every installed mod, sorted by id —
+ *    the original behavior, so runs without a discoverable config don't regress.
  */
-export function enumerateSources(gamePath: string, modsPath: string | null): Source[] {
+export function enumerateSources(
+  gamePath: string,
+  modsPath: string | null,
+  loadOrder?: ModLoadEntry[] | null,
+): { sources: Source[]; missingEnabled: ModLoadEntry[] } {
   const sa = streamingAssets(gamePath);
   const sources: Source[] = [
-    { id: 'base', kind: 'base', name: 'Base game', deprecated: false, root: join(sa, 'original') },
+    {
+      id: 'base',
+      kind: 'base',
+      name: 'Base game',
+      deprecated: false,
+      enabled: true,
+      order: null,
+      root: join(sa, 'original'),
+    },
   ];
+  const missingEnabled: ModLoadEntry[] = [];
 
   if (modsPath && existsSync(modsPath)) {
-    const modIds = readdirSync(modsPath)
-      .filter((d) => statSync(join(modsPath, d)).isDirectory())
-      .sort();
-    for (const id of modIds) {
-      const root = join(modsPath, id);
-      const info = readModInfo(root, id);
-      sources.push({ id, kind: 'mod', name: info.name, deprecated: info.deprecated, root });
+    const enabledInOrder = loadOrder?.filter((e) => e.enabled) ?? null;
+    if (enabledInOrder && enabledInOrder.length > 0) {
+      // Load-order mode: enabled mods only, in ascending (low→high) order.
+      for (const entry of enabledInOrder) {
+        const root = join(modsPath, entry.id);
+        if (!existsSync(root)) {
+          missingEnabled.push(entry); // enabled but not under the workshop dir
+          continue;
+        }
+        const info = readModInfo(root, entry.id);
+        sources.push({
+          id: entry.id,
+          kind: 'mod',
+          name: info.name,
+          deprecated: info.deprecated,
+          enabled: true,
+          order: entry.order,
+          root,
+        });
+      }
+    } else {
+      // Fallback: every installed mod, sorted by id (the original behavior).
+      const modIds = readdirSync(modsPath)
+        .filter((d) => statSync(join(modsPath, d)).isDirectory())
+        .sort();
+      for (const id of modIds) {
+        const root = join(modsPath, id);
+        const info = readModInfo(root, id);
+        sources.push({
+          id,
+          kind: 'mod',
+          name: info.name,
+          deprecated: info.deprecated,
+          enabled: true,
+          order: null,
+          root,
+        });
+      }
     }
   }
 
   const userRoot = join(sa, 'user');
   if (existsSync(userRoot)) {
-    sources.push({ id: 'user', kind: 'user', name: 'User overrides', deprecated: false, root: userRoot });
+    sources.push({
+      id: 'user',
+      kind: 'user',
+      name: 'User overrides',
+      deprecated: false,
+      enabled: true,
+      order: null,
+      root: userRoot,
+    });
   }
-  return sources;
+  return { sources, missingEnabled };
 }
 
 /** List `*.ini` files (shallow) in `<source.root>/<category>`. */

@@ -35,6 +35,13 @@ export type SourceInfo = {
   /** Display name from `_info.ini` (mods), or a friendly label for base/user. */
   name: string;
   deprecated: boolean;
+  /** Whether this source was applied (base/user always true; mods per load order). */
+  enabled: boolean;
+  /**
+   * Mod load-order index from the game's `[LoadOrder]` (higher = loaded later =
+   * wins conflicts). `null` for base/user and when load order isn't applied.
+   */
+  order: number | null;
 };
 
 export type MissilePreset = {

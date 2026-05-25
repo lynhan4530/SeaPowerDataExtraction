@@ -18,6 +18,7 @@ import {
   CONFIG_FILENAME,
 } from './config.ts';
 import { enumerateSources, indexCategory, mergeSections } from './sources.ts';
+import { loadModLoadOrder } from './modconfig.ts';
 import { parseMissile } from './parsers/ammunition.ts';
 import { parseLauncher } from './parsers/weapons.ts';
 import { parseIlluminator } from './parsers/sensors.ts';
@@ -38,10 +39,21 @@ type Args = {
   mods: string | undefined;
   out: string;
   printConfig: boolean;
+  /** Explicit path to the game's usersettings.ini (mod load order). */
+  modConfig: string | undefined;
+  /** Ignore the load order; include every installed mod (legacy behavior). */
+  allMods: boolean;
 };
 
 function parseArgs(argv: string[]): Args {
-  const args: Args = { game: undefined, mods: undefined, out: 'presets.json', printConfig: false };
+  const args: Args = {
+    game: undefined,
+    mods: undefined,
+    out: 'presets.json',
+    printConfig: false,
+    modConfig: undefined,
+    allMods: false,
+  };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     switch (a) {
@@ -53,6 +65,12 @@ function parseArgs(argv: string[]): Args {
         break;
       case '--out':
         args.out = argv[++i] ?? args.out;
+        break;
+      case '--mod-config':
+        args.modConfig = argv[++i];
+        break;
+      case '--all-mods':
+        args.allMods = true;
         break;
       case '--print-config':
         args.printConfig = true;
@@ -80,6 +98,8 @@ function printHelp(): void {
       '  --game <dir>     game root (…/steamapps/common/Sea Power)',
       '  --mods <dir>     workshop dir (…/workshop/content/1286220)',
       '  --out <file>     output path (default: presets.json)',
+      '  --mod-config <f> path to usersettings.ini (else auto-discovered)',
+      '  --all-mods       ignore load order; include every installed mod',
       '  --print-config   show resolved paths + mod set, then exit',
       '  -h, --help       this help',
     ].join('\n'),
@@ -100,16 +120,43 @@ function main(): void {
     throw err;
   }
 
-  const sources = enumerateSources(paths.gamePath, paths.modsPath);
+  // Discover the player's enabled-mods list + load order (live each run), unless
+  // --all-mods forces the legacy "every installed mod" chain.
+  const modConfig = args.allMods ? undefined : loadModLoadOrder(args.modConfig);
+  const { sources, missingEnabled } = enumerateSources(
+    paths.gamePath,
+    paths.modsPath,
+    modConfig?.entries ?? null,
+  );
+  const loadOrderApplied = !args.allMods && modConfig !== undefined;
   const active = sources.filter((s) => !s.deprecated);
   const deprecated = sources.filter((s) => s.deprecated);
+  const modSources = sources.filter((s) => s.kind === 'mod' && !s.deprecated);
 
   if (args.printConfig) {
     console.log(`Resolved via : ${paths.source}`);
     console.log(`Game path    : ${paths.gamePath}`);
     console.log(`Mods path    : ${paths.modsPath ?? '(none)'}`);
     console.log(`Game version : ${detectGameVersion(paths.gamePath) ?? '(unknown)'}`);
+    if (args.allMods) {
+      console.log(`Mod config   : (ignored — --all-mods)`);
+    } else if (modConfig) {
+      console.log(`Mod config   : ${modConfig.path}`);
+    } else {
+      console.log(`Mod config   : (not found — fallback: all installed, by id)`);
+    }
+    console.log(`Load order   : ${loadOrderApplied ? 'applied' : 'fallback (all installed)'}`);
     console.log(`Sources      : ${active.length} active, ${deprecated.length} deprecated`);
+    console.log(`Mods enabled : ${modSources.length}${loadOrderApplied ? ' (of ' + (modConfig?.entries.length ?? 0) + ' listed)' : ''}`);
+    if (loadOrderApplied) {
+      for (const m of modSources) {
+        console.log(`  [${String(m.order).padStart(3)}] ${m.id}  ${m.name}`);
+      }
+      if (missingEnabled.length > 0) {
+        console.log(`Missing dirs : ${missingEnabled.length} enabled mod(s) not under mods path`);
+        for (const m of missingEnabled) console.log(`  [${String(m.order).padStart(3)}] ${m.id}`);
+      }
+    }
     const { files, collisions } = indexCategory(active, 'ammunition');
     console.log(`Ammunition   : ${files.length} files (${collisions.length} overridden)`);
     return;
@@ -117,6 +164,9 @@ function main(): void {
 
   const warnings: string[] = [];
   for (const d of deprecated) warnings.push(`skipped deprecated mod ${d.id} (${d.name})`);
+  for (const m of missingEnabled) {
+    warnings.push(`enabled mod ${m.id} (load order ${m.order}) not found under mods path — skipped`);
+  }
 
   // --- Missiles -------------------------------------------------------------
   const { files: ammoFiles, collisions } = indexCategory(active, 'ammunition');
@@ -194,6 +244,8 @@ function main(): void {
     kind: s.kind,
     name: s.name,
     deprecated: s.deprecated,
+    enabled: s.enabled,
+    order: s.order,
   }));
 
   const presets: PresetsJson = {
@@ -208,6 +260,8 @@ function main(): void {
     stats: {
       sourcesActive: active.length,
       sourcesDeprecated: deprecated.length,
+      sourcesEnabled: modSources.length,
+      loadOrderApplied: loadOrderApplied ? 1 : 0,
       ammunitionFiles: ammoFiles.length,
       missiles: missiles.length,
       launchers: launchers.length,
@@ -228,7 +282,7 @@ function main(): void {
   console.log(`Wrote ${outPath}`);
   console.log(`  ${missiles.length} missiles from ${ammoFiles.length} ammunition files`);
   console.log(`  ${launchers.length} launchers, ${illuminators.length} illuminators, ${ships.length} ships`);
-  console.log(`  ${active.length} sources (${deprecated.length} deprecated skipped)`);
+  console.log(`  ${active.length} sources (${modSources.length} mods ${loadOrderApplied ? 'in load order' : 'all installed'}, ${deprecated.length} deprecated skipped)`);
   console.log(`  ${warnings.length} warnings -> ${CONFIG_FILENAME} updated`);
 }
 

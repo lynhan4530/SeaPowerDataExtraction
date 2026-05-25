@@ -27,8 +27,10 @@ npm test                       # node --test — runs *.test.ts directly (no bui
 npm run typecheck              # tsc --noEmit  (type-check only; never emits JS)
 npm run parse                  # node src/cli.ts → presets.json + presets.warnings.log
 node --test test/ini.test.ts   # run a single test file
-node src/cli.ts --print-config # show resolved paths + mod set, parse nothing
+node src/cli.ts --print-config # show resolved paths + enabled mod set/order, parse nothing
 node src/cli.ts --game "<dir>" --mods "<dir>" --out presets.json
+node src/cli.ts --all-mods     # ignore load order; include every installed mod (legacy)
+node src/cli.ts --mod-config "<usersettings.ini>"  # override the load-order config path
 ```
 
 ## Runtime constraints (read before editing TS)
@@ -51,7 +53,8 @@ used only for type checking. Consequences:
 | `schema.ts` | `presets.json` output types (the app contract). |
 | `steam.ts` | Steam auto-discovery: registry + `libraryfolders.vdf` → game/mods paths. |
 | `config.ts` | Path resolution precedence + validation; writes back resolved config. |
-| `sources.ts` | Enumerate base/user/mod sources; override resolution + provenance. |
+| `modconfig.ts` | Reads the game's `[LoadOrder]` (`usersettings.ini`) → enabled mods, in order. |
+| `sources.ts` | Enumerate base/user/mod sources (enabled + load order); override resolution + provenance. |
 | `units.ts` | Unit conversions (km→nm). |
 | `parsers/ammunition.ts` | `Type=Missile` ammo → `MissilePreset`. |
 | `parsers/weapons.ts` | `weapons.ini` section → `LauncherPreset`. |
@@ -61,9 +64,10 @@ used only for type checking. Consequences:
 | `emit.ts` | Game-version detection + write presets/warnings. |
 | `cli.ts` | Arg parsing + pipeline orchestration. |
 
-Pipeline (in `cli.ts`): resolve paths → enumerate sources → parse ammo (per-file) → parse
-weapons + sensors (per-section) → build link context (illuminator/launcher/missile id maps) →
-parse vessels (per-file, cross-linked) → apply localized names → emit JSON + warnings.
+Pipeline (in `cli.ts`): resolve paths → read mod load order → enumerate sources (enabled, in
+order) → parse ammo (per-file) → parse weapons + sensors (per-section) → build link context
+(illuminator/launcher/missile id maps) → parse vessels (per-file, cross-linked) → apply localized
+names → emit JSON + warnings.
 
 ## Path resolution (`config.ts`, §2.1)
 
@@ -80,9 +84,25 @@ Validation: game = `Sea Power.exe` + `…/StreamingAssets/original/ammunition` e
 
 A "source" is the base game, local user overrides, or a workshop mod — each a directory laid
 out like `StreamingAssets` (`ammunition/`, `systems/`, `vessels/`, …). Sources are enumerated
-in override **priority order low→high: base → mods (sorted by id) → user**. Deprecated mods
-(`_info.ini` has `Name=[DEPRECATED] …`) are skipped entirely. Every emitted entity carries a
-`source` field (`base` | `user` | `<modId>`).
+in override **priority order low→high: base → enabled mods (in the player's load order) →
+user**. Deprecated mods (`_info.ini` has `Name=[DEPRECATED] …`) are skipped entirely. Every
+emitted entity carries a `source` field (`base` | `user` | `<modId>`).
+
+**Enabled-mods load order (`modconfig.ts`).** The game persists its mod-manager state in its
+Unity persistent-data dir — `<home>/AppData/LocalLow/Triassic Games/Sea Power/usersettings.ini`
+(discovered from the OS home, never hardcoded; `--mod-config <path>` overrides). The
+`[LoadOrder]` section lists `Mod<N>Directory=<dir>,<enabledBool>` (`<dir>` = workshop id or local
+folder name; `<N>` = load order) plus `NumberOfModFiles=<N>`. `enumerateSources` honors this:
+**only enabled mods, in ascending `Mod<N>` order**, with **bottom-of-list wins** (higher index
+loads last → overrides earlier — consistent with the low→high chain; documented assumption,
+reversible if the game proves otherwise). The file is re-read **live each run** (the player's set
+changes over time). Enabled mods whose directory is missing under the mods path are skipped and
+reported to `presets.warnings.log`.
+- **Fallback (no regression):** if the config is absent/unreadable/has no `[LoadOrder]`, or with
+  `--all-mods`, it reverts to the old behavior — **all installed mods, sorted by id**.
+- `sources[]` is emitted in load order; each `SourceInfo` carries `enabled` + `order`
+  (mod load-order index; `null` for base/user). Stats: `sourcesEnabled` (applied mod count) and
+  `loadOrderApplied` (1/0). `--print-config` prints the config path, mode, and the ordered set.
 
 Two distinct override strategies, because the files work differently:
 - **Per-file** (`indexCategory`) — `ammunition/*.ini` is one entity per file; last-writer-wins
@@ -157,25 +177,34 @@ Ticonderoga cap=4 (4× SPG-62), Spruance cap=2 (MK-95).
 
 `presets.json` is a **richer superset** of the app's current `src/types.ts`. Keep overlapping
 names identical (`id`, `name`, `speedKnots`, `maxRangeNm`, `minRangeNm`); unknown numerics are
-`null`, never omitted. Top-level: `generatedAt`, `gameVersion`, `resolvedPaths`, `sources[]`,
-`missiles[]`, `launchers[]`, `illuminators[]`, `ships[]`, `stats`. The app's interim model uses
+`null`, never omitted. Top-level: `generatedAt`, `gameVersion`, `resolvedPaths`, `sources[]`
+(in load order; each carries `enabled` + `order`), `missiles[]`, `launchers[]`,
+`illuminators[]`, `ships[]`, `stats`. The app's interim model uses
 the hand-waved `interceptsPerWindow`; presets instead carry channel/Pk data and the app derives
 the rest in a thin adapter — don't downgrade presets to match the interim types.
 
 ## Current state
 
-Validated end-to-end against the real install (game **v0.7.10**, 125 mods, 2 deprecated):
-**702 missiles, 482 launchers, 809 illuminators, 544 ships**. Tests: `test/ini.test.ts`
-(tokenizer) + `test/parsers.test.ts` (parsers incl. vessels) + `test/names.test.ts`
-(name parsers), **38 passing**.
+Validated end-to-end against the real install (game **v0.7.10**). Output now depends on the
+player's enabled-mods load order (read live from `usersettings.ini`):
+- **Default (load order honored, 73 of 128 mods enabled):** 617 missiles, 452 launchers,
+  779 illuminators, 505 ships.
+- **`--all-mods` (legacy, all 125 installed, 2 deprecated):** 702 missiles, 482 launchers,
+  809 illuminators, 544 ships.
+
+Tests: `test/ini.test.ts` (tokenizer) + `test/parsers.test.ts` (parsers incl. vessels) +
+`test/names.test.ts` (name parsers) + `test/modconfig.test.ts` (load-order parser),
+**46 passing**.
 
 Vessel cross-linking is live: each ship carries `directors[]` (resolved illuminators + channels),
 `mounts[]` (resolved launchers), `loadouts[]` (per-named-fit `{ammoId, count, isMissile}`), and
-the headline `weaponChannels` cap. Link health: **mounts 97.7% resolved** (152/6694 unresolved,
-almost all mod naming drift — `NSM_quad_launcher` vs `eu_NSM_quad_launcher`, `SeacatQuad` vs
-`RN_SeacatQuad`, `3S90` vs `3S90M` — reported via each mount's `resolved:false`, no fuzzy
-matching); **directors 100% resolved**. Mod-overridden sensors flow through: e.g. Adams SPG-51
-shows 2 channels (base is 1) because an active mod bumped it.
+the headline `weaponChannels` cap. Link health (all-mods run): **mounts 97.7% resolved**
+(152/6694 unresolved, almost all mod naming drift — `NSM_quad_launcher` vs `eu_NSM_quad_launcher`,
+`SeacatQuad` vs `RN_SeacatQuad`, `3S90` vs `3S90M` — reported via each mount's `resolved:false`,
+no fuzzy matching); **directors 100% resolved**. Mod-overridden sensors flow through *only when
+the overriding mod is enabled*: e.g. Adams SPG-51 = 2 channels (base is 1), won by enabled mod
+`3499239964` (E-7A Wedgetail, order 25) — verified in the default load-order run; disabling that
+mod reverts SPG-51 to the base value.
 
 **Localized display names** are live (base-game only): `names.ts` reads
 `language_en/ammunition_names.ini`, `vessel_names.ini`, and `systemgroups.ini` and enriches all
@@ -190,8 +219,8 @@ sensors.ini illuminator ids** (`MK13=MK 13`, `SPG-62=SPG-62|…`, `SPY-1A=SPY-1A
 **both** sections (`[SystemNames]` authoritative on collision). Value format is `id=Name`,
 `id=Name|Description`, or `id=Name|Nickname|Description` — always take `part[0]` before `|`.
 
-**Coverage — verified against the real install 2026-05-25** (tables loaded: 334 missile, 235
-ship, 662 system entries):
+**Coverage — verified against the real install 2026-05-25** (denominators are the `--all-mods`
+totals; tables loaded: 334 missile, 235 ship, 662 system entries):
 
 | Preset | Localized | % | Notes |
 |---|---|---|---|
@@ -211,8 +240,8 @@ not name shape — `prettifyId` already strips `_`, so the underscore heuristic 
 2. (Optional) Resolve the residual ~2.3% unresolved ship mounts — would require a
    normalization/alias step, risky; defer unless asked.
 
-Other open questions (§8): enabled-mods load order (interim: last-writer-wins); whether SAMs
-expose a Pk like CIWS do.
+Other open questions (§8): whether SAMs expose a Pk like CIWS do. (Enabled-mods load order is now
+resolved — see the Source & override model section.)
 
 ## Game data layout (this machine — discovered, not hardcoded)
 
@@ -222,5 +251,7 @@ expose a Pk like CIWS do.
 - User overrides: `…\StreamingAssets\user`
 - Workshop mods: `D:\SteamLibrary\steamapps\workshop\content\1286220\<modId>\` (each mirrors the
   StreamingAssets layout)
+- Mod load order: `C:\Users\<user>\AppData\LocalLow\Triassic Games\Sea Power\usersettings.ini`,
+  `[LoadOrder]` section (discovered from the OS home dir).
 - `seapower-parser.config.json`, `presets.json`, `presets.warnings.log` are gitignored
   (machine-local / generated).
