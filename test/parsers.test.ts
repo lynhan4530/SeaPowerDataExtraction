@@ -6,7 +6,7 @@ import { parseLauncher } from '../src/parsers/weapons.ts';
 import { parseIlluminator } from '../src/parsers/sensors.ts';
 import { parseVessel, type VesselLinkContext } from '../src/parsers/vessels.ts';
 
-test('parseMissile decodes guidance, role, sea-skimming, ECCM', () => {
+test('parseMissile decodes guidance, role, sea-skimming, ECCM, Pk', () => {
   const doc = parseIni(`[General]
 Type=Missile
 TargetType=ASuW
@@ -19,6 +19,8 @@ SeaSkimmingAlt=33
 SeekerActiveRange=20
 AntiCountermeasuresBonus=0.2
 AntiJammerBonus=0.05
+[WarheadData]
+KillProbability=0.85
 [SensorData]
 RCS=0.25
 `);
@@ -33,6 +35,17 @@ RCS=0.25
   assert.equal(m.seaSkimmingAltFt, 33);
   assert.equal(m.rcs, 0.25);
   assert.equal(m.antiJammerBonus, 0.05);
+  assert.equal(m.killProbability, 0.85);
+});
+
+test('parseMissile decodes missing killProbability as null', () => {
+  const doc = parseIni(`[General]
+Type=Missile
+TargetType=AAW
+`);
+  const m = parseMissile(doc, 'usn_rim-7', 'base');
+  assert.ok(m);
+  assert.equal(m.killProbability, null);
 });
 
 test('parseMissile returns null for non-missile ammo', () => {
@@ -62,9 +75,11 @@ ModuleType=CIWS
   assert.equal(l.reloadTimeS, 1800);
 });
 
-test('parseLauncher returns null without ModuleType', () => {
+test('parseLauncher defaults kind to Unknown without ModuleType', () => {
   const doc = parseIni('[NotALauncher]\nFoo=1\n');
-  assert.equal(parseLauncher(doc.byName.get('NotALauncher')!, 'base'), null);
+  const l = parseLauncher(doc.byName.get('NotALauncher')!, 'base');
+  assert.ok(l);
+  assert.equal(l.kind, 'Unknown');
 });
 
 test('parseIlluminator requires WeaponChannels and converts km->nm', () => {
@@ -168,6 +183,45 @@ test('parseVessel reads identity, mounts, and cross-links launchers', () => {
   assert.deepEqual(
     ship.mounts.map((m) => [m.launcherId, m.resolved]),
     [['MK13', true], ['MK42', true], ['ASROC', true]],
+  );
+});
+
+test('parseVessel resolves launchers with naming drift/casing issues', () => {
+  const customCtx = {
+    illuminators: new Map(),
+    launcherIds: new Set(['MK36', 'Sylver_A50', 'eu_NSM_quad_launcher', 'GJB5860-2006']),
+    missileIds: new Set<string>(),
+  };
+
+  const shipIni = `[General]
+UnitType=Vessel
+[WeaponSystems]
+NumberOfWeaponSystems=4
+[WeaponSystem1]
+Type=Missile
+SystemName=Mk36
+[WeaponSystem2]
+Type=Missile
+SystemName=Sylver50
+[WeaponSystem3]
+Type=Missile
+SystemName=NSM_quad_launcher
+[WeaponSystem4]
+Type=Missile
+SystemName=GJB_5860-2006
+`;
+
+  const ship = parseVessel(parseIni(shipIni), 'test_ship', 'base', customCtx);
+  assert.ok(ship);
+  assert.equal(ship.mounts.length, 4);
+  assert.deepEqual(
+    ship.mounts.map((m) => [m.launcherId, m.resolved]),
+    [
+      ['MK36', true],
+      ['Sylver_A50', true],
+      ['eu_NSM_quad_launcher', true],
+      ['GJB5860-2006', true],
+    ],
   );
 });
 

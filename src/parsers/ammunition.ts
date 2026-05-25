@@ -69,6 +69,7 @@ export function parseMissile(
     seekerPassiveRangeNm: findNumber(doc, 'SeekerPassiveRange') ?? null,
     antiCountermeasuresBonus: findNumber(doc, 'AntiCountermeasuresBonus') ?? null,
     antiJammerBonus: findNumber(doc, 'AntiJammerBonus') ?? null,
+    killProbability: findNumber(doc, 'KillProbability') ?? null,
     source,
   };
 }

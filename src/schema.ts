@@ -65,6 +65,8 @@ export type MissilePreset = {
   /** ECCM: subtracted from spoof/jam probability (0..1). */
   antiCountermeasuresBonus: number | null;
   antiJammerBonus: number | null;
+  /** Base hit/kill probability (0..1), else null. */
+  killProbability: number | null;
   source: string;
 };
 

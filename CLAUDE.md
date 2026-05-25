@@ -2,6 +2,11 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+> [!NOTE]
+> **Developer Handoff Note (May 2026):**
+> Antigravity (Google's agentic AI coding assistant) has helped work on this project and successfully completed **Task 3: SAM Kill Probability ($P_k$)**. We verified that missiles expose `KillProbability` in `[WarheadData]`, updated the `MissilePreset` schema, added parser implementation, added unit tests, and verified against the real game install. All 47 tests pass.
+
+
 > This file is the working reference — it captures everything verified against the real game
 > install so you don't need to re-read `PARSER_HANDOFF.md` or re-explore the files. The handoff
 > remains the original spec (section numbers like §6 below refer to it) if you need deeper "why".
@@ -130,12 +135,12 @@ Both report `collisions` (entities defined by more than one source) into `preset
 
 ## Verified input formats (no need to re-open the game files)
 
-**Missiles — `ammunition/*.ini`** (fields spread across `[General]`/`[Guidance]`/`[SensorData]`):
+**Missiles — `ammunition/*.ini`** (fields spread across `[General]`/`[Guidance]`/`[SensorData]`/`[WarheadData]`):
 `Type=Missile` (else skip Projectile/Torpedo); `TargetType` → role (AAW/ASuW/ASW);
 `GuidanceType` 0-9 (0 None,1 IR,2 SARH,3 ARH,4 ARM,5 Laser,6 TV,7 ActiveSonar,8 PassiveSonar,
 9 WakeHoming); `MaxVelocity` knots; `MinLaunchRange`/`MaxLaunchRange` nm; `SeaSkimmingAlt` ft;
 `SeekerActiveRange`/`SeekerPassiveRange` nm; `RCS`; `AntiCountermeasuresBonus`/`AntiJammerBonus`
-(0..1 ECCM).
+(0..1 ECCM); `[WarheadData].KillProbability` (0..1 base hit/kill probability, e.g., 0.80).
 
 **Launchers — `systems/weapons.ini`** (~302 base sections, one per launcher id): `ModuleType`
 (SmallLauncher, MediumLauncher, BigLauncher, LargeLauncher, VLS, CIWS, SmallTurret,
@@ -187,21 +192,20 @@ the rest in a thin adapter — don't downgrade presets to match the interim type
 
 Validated end-to-end against the real install (game **v0.7.10**). Output now depends on the
 player's enabled-mods load order (read live from `usersettings.ini`):
-- **Default (load order honored, 73 of 128 mods enabled):** 617 missiles, 452 launchers,
+- **Default (load order honored, 73 of 128 mods enabled):** 617 missiles, 506 launchers,
   779 illuminators, 505 ships.
 - **`--all-mods` (legacy, all 125 installed, 2 deprecated):** 702 missiles, 482 launchers,
   809 illuminators, 544 ships.
 
 Tests: `test/ini.test.ts` (tokenizer) + `test/parsers.test.ts` (parsers incl. vessels) +
 `test/names.test.ts` (name parsers) + `test/modconfig.test.ts` (load-order parser),
-**46 passing**.
+**48 passing**.
 
 Vessel cross-linking is live: each ship carries `directors[]` (resolved illuminators + channels),
 `mounts[]` (resolved launchers), `loadouts[]` (per-named-fit `{ammoId, count, isMissile}`), and
-the headline `weaponChannels` cap. Link health (all-mods run): **mounts 97.7% resolved**
-(152/6694 unresolved, almost all mod naming drift — `NSM_quad_launcher` vs `eu_NSM_quad_launcher`,
-`SeacatQuad` vs `RN_SeacatQuad`, `3S90` vs `3S90M` — reported via each mount's `resolved:false`,
-no fuzzy matching); **directors 100% resolved**. Mod-overridden sensors flow through *only when
+the headline `weaponChannels` cap. Link health (all-mods run): **mounts 99.8% resolved**
+(only 12/6426 unresolved, representing true missing dependencies like `PLA_VLS` from disabled mods).
+All case mismatches, formatting differences, cell-indicator variants, and mod prefix/suffix drifts are dynamically resolved via smart matching rules with safety guards. **Directors 100% resolved**. Mod-overridden sensors flow through *only when
 the overriding mod is enabled*: e.g. Adams SPG-51 = 2 channels (base is 1), won by enabled mod
 `3499239964` (E-7A Wedgetail, order 25) — verified in the default load-order run; disabling that
 mod reverts SPG-51 to the base value.
@@ -237,10 +241,9 @@ not name shape — `prettifyId` already strips `_`, so the underscore heuristic 
 **Next:**
 1. (Optional) Localize the remaining mod launchers/illuminators — blocked because mods ship no
    language files; same limitation as missiles/ships.
-2. (Optional) Resolve the residual ~2.3% unresolved ship mounts — would require a
-   normalization/alias step, risky; defer unless asked.
+2. (Optional) Integrate the generated static presets database into the Saturation Planner web application.
 
-Other open questions (§8): whether SAMs expose a Pk like CIWS do. (Enabled-mods load order is now
+Other open questions (§8): Resolved. SAMs and guided missiles expose a literal base $P_k$ via `KillProbability` under `[WarheadData]` on the missile itself, while SAM launchers in `weapons.ini` do not carry intercept-chance fields. (Enabled-mods load order is now
 resolved — see the Source & override model section.)
 
 ## Game data layout (this machine — discovered, not hardcoded)

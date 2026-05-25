@@ -19,9 +19,7 @@ export function parseLauncher(
   section: IniSection,
   source: string,
 ): LauncherPreset | null {
-  const kind = getValue(section, 'ModuleType');
-  // A real entry has a ModuleType; without it, it's not a launcher/mount.
-  if (kind === undefined) return null;
+  const kind = getValue(section, 'ModuleType') ?? 'Unknown';
 
   return {
     id: section.name,

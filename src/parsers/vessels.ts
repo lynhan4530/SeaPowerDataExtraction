@@ -40,6 +40,73 @@ export type VesselLinkContext = {
   missileIds: Set<string>;
 };
 
+function normalize(str: string): string {
+  return str.toLowerCase()
+    .replace(/[^a-z0-9]/g, '')
+    // Normalize Sylver cell length indicator (e.g. sylvera50 -> sylver50)
+    .replace(/([a-z])[abc]([0-9]+)/g, '$1$2');
+}
+
+function getDigits(str: string): string {
+  return str.replace(/[^0-9]/g, '');
+}
+
+function getAlpha(str: string): string {
+  return str.toLowerCase().replace(/[^a-z]/g, '');
+}
+
+function resolveLauncherId(target: string, defined: Set<string>): string | null {
+  const normTarget = normalize(target);
+
+  // 1. Exact match
+  if (defined.has(target)) return target;
+
+  // 2. Exact normalized match (handles case, spaces, dashes, underscores)
+  for (const def of defined) {
+    if (normalize(def) === normTarget) return def;
+  }
+
+  // 3. Substring matching with safety guards
+  const targetAlpha = getAlpha(target);
+  const targetDigits = getDigits(target);
+
+  const candidates: string[] = [];
+  for (const def of defined) {
+    const normDef = normalize(def);
+    const defAlpha = getAlpha(def);
+    const defDigits = getDigits(def);
+
+    // Check if one is a substring of another
+    const isSubstring = normDef.includes(normTarget) || normTarget.includes(normDef);
+    if (!isSubstring) continue;
+
+    // Safety guard 1: Digits must match exactly if present in both
+    if (targetDigits && defDigits && targetDigits !== defDigits) {
+      continue;
+    }
+
+    // Safety guard 2: Alphabetic parts must have substring overlap
+    const alphaOverlap = defAlpha.includes(targetAlpha) || targetAlpha.includes(defAlpha);
+    if (!alphaOverlap) {
+      continue;
+    }
+
+    candidates.push(def);
+  }
+
+  if (candidates.length > 0) {
+    // Sort by length difference (closest match first)
+    candidates.sort((a, b) => {
+      const diffA = Math.abs(normalize(a).length - normTarget.length);
+      const diffB = Math.abs(normalize(b).length - normTarget.length);
+      return diffA - diffB;
+    });
+    return candidates[0] ?? null;
+  }
+
+  return null;
+}
+
 /** Turn `usn_ddg_adams_late` into a readable fallback name (real names need l10n later). */
 function prettifyId(id: string): string {
   return id.replace(/_/g, ' ').toUpperCase();
@@ -77,11 +144,12 @@ export function parseVessel(
     const block = doc.byName.get(`WeaponSystem${n}`);
     if (!block) continue;
     const launcherId = getValue(block, 'SystemName') ?? '';
+    const resolvedId = resolveLauncherId(launcherId, ctx.launcherIds);
     mounts.push({
       index: n,
       weaponType: getValue(block, 'Type') ?? '',
-      launcherId,
-      resolved: ctx.launcherIds.has(launcherId),
+      launcherId: resolvedId ?? launcherId,
+      resolved: resolvedId !== null,
     });
   }
 
