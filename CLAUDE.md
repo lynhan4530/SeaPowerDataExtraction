@@ -179,12 +179,36 @@ shows 2 channels (base is 1) because an active mod bumped it.
 
 **Localized display names** are live (base-game only): `names.ts` reads
 `language_en/ammunition_names.ini`, `vessel_names.ini`, and `systemgroups.ini` and enriches all
-four preset arrays before emit. Mod-name override merge is still deferred (base names are
-authoritative for the app's needs). Coverage not yet spot-checked against a real run — validate
-with step 4 of `NEXT_STEPS.md` when next on the real install.
+four preset arrays before emit. Mod-name override merge is deferred (base names are authoritative
+for the app's needs).
+
+**Coverage — verified against the real install 2026-05-25** (tables loaded: 334 missile, 235
+ship, 100 systemgroup entries):
+
+| Preset | Localized | % | Notes |
+|---|---|---|---|
+| Missiles | **145 / 727** | 19.9% | All 145 are base; the 582 fallbacks are all mod/user (mods ship no language files). 145 got a category, 129 a nickname. |
+| Ships | **179 / 546** | 32.8% | All base; every one of the 179 got both nickname and category. |
+| Launchers | **0 / 482** | 0.0% | **Broken — see below.** Names stay raw-id fallbacks (`MK13`, not "MK 13"). |
+| Illuminators | **0 / 829** | 0.0% | **Broken — see below.** (`SPG-62` stays "SPG-62" — fallback that happens to equal the real name.) |
+
+Spot-checks confirm missiles/ships work: `usn_rim-66c` → name `RIM-66C`, nickname `SM-2MR`,
+category `SAM/ASuW`; `usn_cg_ticonderoga` → `Ticonderoga-class` / `Ticonderoga`.
+
+**Launcher/illuminator localization is wired but matches nothing — wrong key namespace.**
+`systemgroups.ini`'s `[LanguageResources]` holds generic *system-group* labels (`SG_CIC`,
+`SG_Air_Radar`, `SG_FCRadarSAM`, `Unknown`, …), **not** weapon/sensor ids like `100mm_AK-100` or
+`AN/APG-53`. Zero of its 100 keys match any launcher or illuminator id, so `applyNames` is a
+no-op for both arrays. The real names live in a different file (not yet located). Note: the
+`/_/`-uppercase fallback heuristic gives a false 0/0/0/0 — `prettifyId` already replaces
+underscores with spaces, so the underscore test never matches; coverage must be measured by
+table membership, not name shape.
 
 **Next:**
-1. (Optional) Resolve the residual ~2.3% unresolved ship mounts — would require a
+1. **Find the real launcher/illuminator name source** so the 0% arrays get localized (the
+   `systemgroups.ini` keys are group labels, not ids — wrong file). Until then both stay
+   raw-id fallbacks.
+2. (Optional) Resolve the residual ~2.3% unresolved ship mounts — would require a
    normalization/alias step, risky; defer unless asked.
 
 Other open questions (§8): enabled-mods load order (interim: last-writer-wins); whether SAMs
