@@ -165,9 +165,9 @@ the rest in a thin adapter — don't downgrade presets to match the interim type
 ## Current state
 
 Validated end-to-end against the real install (game **v0.7.10**, 125 mods, 2 deprecated):
-**727 missiles, 482 launchers, 829 illuminators, 546 ships**. Tests: `test/ini.test.ts`
+**702 missiles, 482 launchers, 809 illuminators, 544 ships**. Tests: `test/ini.test.ts`
 (tokenizer) + `test/parsers.test.ts` (parsers incl. vessels) + `test/names.test.ts`
-(name parsers), **36 passing**.
+(name parsers), **38 passing**.
 
 Vessel cross-linking is live: each ship carries `directors[]` (resolved illuminators + channels),
 `mounts[]` (resolved launchers), `loadouts[]` (per-named-fit `{ammoId, count, isMissile}`), and
@@ -182,32 +182,32 @@ shows 2 channels (base is 1) because an active mod bumped it.
 four preset arrays before emit. Mod-name override merge is deferred (base names are authoritative
 for the app's needs).
 
+**Launcher/illuminator localization is FIXED** (was a wrong-section bug). `systemgroups.ini` has
+two name sections: `[LanguageResources]` holds only generic system-GROUP labels (`SG_CIC`,
+`SG_FCRadarSAM`, …), while **`[SystemNames]` holds the real weapons.ini launcher ids and
+sensors.ini illuminator ids** (`MK13=MK 13`, `SPG-62=SPG-62|…`, `SPY-1A=SPY-1A|…`).
+`parseSystemNames` previously read only `[LanguageResources]`, so it matched nothing. It now reads
+**both** sections (`[SystemNames]` authoritative on collision). Value format is `id=Name`,
+`id=Name|Description`, or `id=Name|Nickname|Description` — always take `part[0]` before `|`.
+
 **Coverage — verified against the real install 2026-05-25** (tables loaded: 334 missile, 235
-ship, 100 systemgroup entries):
+ship, 662 system entries):
 
 | Preset | Localized | % | Notes |
 |---|---|---|---|
-| Missiles | **145 / 727** | 19.9% | All 145 are base; the 582 fallbacks are all mod/user (mods ship no language files). 145 got a category, 129 a nickname. |
-| Ships | **179 / 546** | 32.8% | All base; every one of the 179 got both nickname and category. |
-| Launchers | **0 / 482** | 0.0% | **Broken — see below.** Names stay raw-id fallbacks (`MK13`, not "MK 13"). |
-| Illuminators | **0 / 829** | 0.0% | **Broken — see below.** (`SPG-62` stays "SPG-62" — fallback that happens to equal the real name.) |
+| Missiles | **145 / 702** | 20.7% | All 145 are base; the fallbacks are all mod/user (mods ship no language files). |
+| Ships | **179 / 544** | 32.9% | All base; every one of the 179 got both nickname and category. |
+| Launchers | **133 / 482** | 27.6% | Base launchers localized via `[SystemNames]`; fallbacks are mod ids. |
+| Illuminators | **178 / 809** | 22.0% | Base illuminators localized via `[SystemNames]`; fallbacks are mod ids. |
 
-Spot-checks confirm missiles/ships work: `usn_rim-66c` → name `RIM-66C`, nickname `SM-2MR`,
-category `SAM/ASuW`; `usn_cg_ticonderoga` → `Ticonderoga-class` / `Ticonderoga`.
-
-**Launcher/illuminator localization is wired but matches nothing — wrong key namespace.**
-`systemgroups.ini`'s `[LanguageResources]` holds generic *system-group* labels (`SG_CIC`,
-`SG_Air_Radar`, `SG_FCRadarSAM`, `Unknown`, …), **not** weapon/sensor ids like `100mm_AK-100` or
-`AN/APG-53`. Zero of its 100 keys match any launcher or illuminator id, so `applyNames` is a
-no-op for both arrays. The real names live in a different file (not yet located). Note: the
-`/_/`-uppercase fallback heuristic gives a false 0/0/0/0 — `prettifyId` already replaces
-underscores with spaces, so the underscore test never matches; coverage must be measured by
-table membership, not name shape.
+Spot-checks confirm all four work: `usn_rim-66c` → `RIM-66C` / `SM-2MR` / `SAM/ASuW`;
+`usn_cg_ticonderoga` → `Ticonderoga-class` / `Ticonderoga`; launcher `MK13` → "MK 13";
+illuminators `SPG-62` → "SPG-62", `SPY-1A` → "SPY-1A". (Measure coverage by table membership,
+not name shape — `prettifyId` already strips `_`, so the underscore heuristic reads a false 0%.)
 
 **Next:**
-1. **Find the real launcher/illuminator name source** so the 0% arrays get localized (the
-   `systemgroups.ini` keys are group labels, not ids — wrong file). Until then both stay
-   raw-id fallbacks.
+1. (Optional) Localize the remaining mod launchers/illuminators — blocked because mods ship no
+   language files; same limitation as missiles/ships.
 2. (Optional) Resolve the residual ~2.3% unresolved ship mounts — would require a
    normalization/alias step, risky; defer unless asked.
 

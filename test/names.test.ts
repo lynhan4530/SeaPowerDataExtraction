@@ -84,28 +84,46 @@ test('parseVesselNames: empty nickname → null', () => {
 
 // --- parseSystemNames -------------------------------------------------------
 
-test('parseSystemNames: plain id=Name', () => {
-  const m = parseSystemNames('[LanguageResources]\nMK13=MK 13\n');
+test('parseSystemNames: plain id=Name from [SystemNames]', () => {
+  const m = parseSystemNames('[SystemNames]\nMK13=MK 13\n');
   assert.equal(m.get('MK13'), 'MK 13');
 });
 
 test('parseSystemNames: id=Name|Description → name only', () => {
   const m = parseSystemNames(
-    '[LanguageResources]\nSPG-62=SPG-62|The AN/SPG-62 illuminator\n',
+    '[SystemNames]\nSPG-62=SPG-62|The AN/SPG-62 illuminator\n',
   );
   assert.equal(m.get('SPG-62'), 'SPG-62');
 });
 
+test('parseSystemNames: id=Name|Nickname|Description (3-field gun form) → name only', () => {
+  const m = parseSystemNames(
+    '[SystemNames]\nMk8=4.5" Mk 8|4.5" Mk 8 Naval Gun|The 4.5" Mk 8 replaced…\n',
+  );
+  assert.equal(m.get('Mk8'), '4.5" Mk 8');
+});
+
 test('parseSystemNames: multiple entries', () => {
   const m = parseSystemNames(
-    '[LanguageResources]\nMK13=MK 13\nSPY-1A=SPY-1A|Aegis radar\nSPG-62=SPG-62\n',
+    '[SystemNames]\nMK13=MK 13\nSPY-1A=SPY-1A|Aegis radar\nSPG-62=SPG-62\n',
   );
   assert.equal(m.get('MK13'), 'MK 13');
   assert.equal(m.get('SPY-1A'), 'SPY-1A');
   assert.equal(m.get('SPG-62'), 'SPG-62');
 });
 
-test('parseSystemNames: missing section → empty map', () => {
+test('parseSystemNames: reads both sections; [SystemNames] wins on collision', () => {
+  const m = parseSystemNames(
+    '[LanguageResources]\nSG_CIC=Combat Information Center\nMK13=stale\n' +
+      '[SystemNames]\nMK13=MK 13\n',
+  );
+  // SG_* group labels from LanguageResources are still collected…
+  assert.equal(m.get('SG_CIC'), 'Combat Information Center');
+  // …but the authoritative [SystemNames] value overrides any collision.
+  assert.equal(m.get('MK13'), 'MK 13');
+});
+
+test('parseSystemNames: missing sections → empty map', () => {
   const m = parseSystemNames('[OtherSection]\nkey=val\n');
   assert.equal(m.size, 0);
 });

@@ -80,23 +80,37 @@ export function parseVesselNames(text: string): Map<string, NameEntry> {
 
 /**
  * Parse `systemgroups.ini`.
- * Format: single `[LanguageResources]` section; lines are either
+ * Two sections hold display names, both with the same line format:
  *   id=Name
- *   id=Name|Description   (pipe-delimited; description is dropped)
- * Covers both weapons.ini and sensors.ini ids, plus SG_* group keys (harmless).
+ *   id=Name|Description            (pipe-delimited; only the name before `|` is kept)
+ *   id=Name|Nickname|Description   (some guns use a 3-field form — still take part[0])
+ *
+ * - `[SystemNames]` holds the real weapons.ini launcher ids and sensors.ini
+ *   illuminator ids (e.g. `MK13=MK 13`, `SPG-62=SPG-62|…`, `SPY-1A=SPY-1A|…`).
+ *   THIS is the source the saturation app needs.
+ * - `[LanguageResources]` holds only generic `SG_*` system-GROUP labels
+ *   (`SG_CIC`, `SG_FCRadarSAM`, …) — harmless, kept for completeness.
+ *
+ * `[SystemNames]` wins on the (unlikely) key collision since it is authoritative.
  */
 export function parseSystemNames(text: string): Map<string, string> {
   const doc = parseIni(text);
-  const section = doc.byName.get('LanguageResources');
-  if (!section) return new Map();
-
   const result = new Map<string, string>();
-  for (const key of section.keys) {
-    const raw = section.values[key]?.[0];
-    if (!raw) continue;
-    const name = raw.split('|')[0]?.trim();
-    if (name) result.set(key, name);
-  }
+
+  const collect = (sectionName: string) => {
+    const section = doc.byName.get(sectionName);
+    if (!section) return;
+    for (const key of section.keys) {
+      const raw = section.values[key]?.[0];
+      if (!raw) continue;
+      const name = raw.split('|')[0]?.trim();
+      if (name) result.set(key, name);
+    }
+  };
+
+  collect('LanguageResources');
+  collect('SystemNames'); // authoritative — overrides LanguageResources on collision
+
   return result;
 }
 
